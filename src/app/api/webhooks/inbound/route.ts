@@ -21,13 +21,19 @@
  * If Zapier sends the same message twice, the second attempt is silently
  * discarded and a 200 is still returned so Zapier does not retry.
  *
- * Expected Zapier payload (all fields optional except as noted):
+ * Accepted payload fields (all optional except as noted):
  * {
- *   "id": "...",            // Gmail message ID (dedup key)
- *   "from": "Name <x@y>",  // or "senderEmail" / "sender"
- *   "subject": "...",
- *   "bodyPlain": "...",     // or "body", "snippet"
- *   "date": "..."           // RFC 2822 or ISO 8601
+ *   // Dedup key — accepted under any of these names:
+ *   "id" / "messageId" / "message_id" / "email_id" / "external_event_id"
+ *
+ *   // Sender — accepted as combined "from" string or split fields:
+ *   "from" / "sender" / "senderEmail" / "sender_email"
+ *   "senderName" / "sender_name"
+ *
+ *   "subject"                     // Email subject
+ *   "bodyPlain" / "body" / "body_text" / "snippet"  // Plain-text body
+ *   "date" / "received_at"        // Timestamp (ISO 8601 or RFC 2822)
+ *   "source"                      // Optional override, defaults to "gmail"
  * }
  */
 
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       "[AutoOps webhook] AUTOOPS_WEBHOOK_SECRET is not set — refusing all requests."
     );
     return NextResponse.json(
-      { error: "Webhook is not configured." },
+      { error: "Webhook is not configured. Set AUTOOPS_WEBHOOK_SECRET on the server." },
       { status: 503 }
     );
   }
@@ -80,13 +86,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       "[AutoOps webhook] AUTOOPS_WEBHOOK_USER_ID is not set — cannot determine target user."
     );
     return NextResponse.json(
-      { error: "Server misconfiguration: target user not set." },
+      { error: "Server misconfiguration: target user not set. Set AUTOOPS_WEBHOOK_USER_ID on the server." },
       { status: 503 }
     );
   }
 
   // ── 3. Parse & validate payload ──────────────────────────────────────────
-  let rawPayload: Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rawPayload: Record<string, any>;
 
   try {
     rawPayload = await req.json();
@@ -105,14 +112,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── 4. Normalize email fields ─────────────────────────────────────────────
+  // normalizeEmail handles many Zapier field aliases.
+  // We also accept direct field names (external_event_id, sender_email, etc.)
+  // by patching them through the raw payload before normalising.
   const normalized = normalizeEmail(rawPayload);
 
-  // ── 5. Insert into inbound_events (with dedup) ───────────────────────────
-  const supabase = createAdminClient();
+  // Accept source override from the payload (e.g. "gmail", "outlook").
+  const source =
+    typeof rawPayload.source === "string" && rawPayload.source.trim()
+      ? rawPayload.source.trim()
+      : "gmail";
 
+  // ── 5. Initialise the admin client (service-role) ─────────────────────────
+  let supabase;
+  try {
+    supabase = createAdminClient();
+  } catch (err) {
+    console.error("[AutoOps webhook] Failed to initialise admin client:", err);
+    return NextResponse.json(
+      {
+        error:
+          "Server misconfiguration: database client could not be initialised. " +
+          "Ensure SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL are set on the server.",
+      },
+      { status: 503 }
+    );
+  }
+
+  // ── 6. Insert into inbound_events (with dedup) ───────────────────────────
   const eventRow = {
     user_id: userId,
-    source: "gmail",
+    source,
     external_event_id: normalized.external_event_id,
     sender_email: normalized.sender_email,
     sender_name: normalized.sender_name,
@@ -143,14 +173,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     console.error("[AutoOps webhook] Failed to insert inbound_event:", eventError);
     return NextResponse.json(
-      { error: "Database error while storing event." },
+      { error: "Database error while storing event.", detail: eventError.message },
       { status: 500 }
     );
   }
 
   const eventId = insertedEvent?.id ?? null;
 
-  // ── 6. Append activity_log entry ─────────────────────────────────────────
+  // ── 7. Append activity_log entry ─────────────────────────────────────────
   if (eventId) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: logError } = await (supabase.from("activity_log") as any).insert({
@@ -160,7 +190,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       after_data: {
         sender_email: normalized.sender_email,
         subject: normalized.subject,
-        source: "gmail",
+        source,
       },
     });
 
@@ -173,7 +203,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // ── 7. Success ────────────────────────────────────────────────────────────
+  // ── 8. Success ────────────────────────────────────────────────────────────
   console.info(
     `[AutoOps webhook] Ingested event id=${eventId} from=${normalized.sender_email} subject="${normalized.subject}"`
   );

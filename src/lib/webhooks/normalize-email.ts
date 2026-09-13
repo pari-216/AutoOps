@@ -87,10 +87,11 @@ export function normalizeEmail(
 ): NormalizedEmail {
   // --- Message ID (dedup key) ---
   const external_event_id = pick(rawPayload, [
-    "id",          // Zapier Gmail "New Email" trigger
+    "id",               // Zapier Gmail "New Email" trigger
     "messageId",
     "message_id",
     "email_id",
+    "external_event_id", // direct / test payloads
   ]);
 
   // --- Sender (may be combined "From" or split fields) ---

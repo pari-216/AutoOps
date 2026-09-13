@@ -40,6 +40,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { normalizeEmail } from "@/lib/webhooks/normalize-email";
+import { processInboundEvent } from "@/lib/ai/process-event";
 
 // ---------------------------------------------------------------------------
 // Environment variable helpers
@@ -203,9 +204,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // ── 8. Success ────────────────────────────────────────────────────────────
+  // ── 8. Trigger AI processing (fire-and-forget) ───────────────────────────
+  // AI processing is intentionally NOT awaited. This ensures:
+  //   • Zapier receives a fast 200 immediately after email storage.
+  //   • A temporary AI failure never causes Zapier to retry ingestion.
+  //   • The inbound email is always preserved regardless of AI outcome.
+  // Errors are caught inside processInboundEvent and written to activity_log.
+  if (eventId) {
+    processInboundEvent(eventId, userId).catch((err) => {
+      console.error(
+        `[AutoOps webhook] Unhandled error in processInboundEvent for ${eventId}:`,
+        err
+      );
+    });
+  }
+
+  // ── 9. Return success to Zapier ───────────────────────────────────────────
   console.info(
-    `[AutoOps webhook] Ingested event id=${eventId} from=${normalized.sender_email} subject="${normalized.subject}"`
+    `[AutoOps webhook] Ingested event id=${eventId} from=${normalized.sender_email} subject="${normalized.subject}" — AI processing started.`
   );
 
   return NextResponse.json(

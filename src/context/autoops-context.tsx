@@ -54,74 +54,11 @@ interface AutoOpsContextType {
   removeToast: (id: string) => void;
 }
 
-const initialPending: ApprovalItem[] = [
-  {
-    id: "item-1",
-    subject: "Invoice Request for Services #1042",
-    from: "billing@acmecorp.com",
-    senderName: "Acme Corp Billing",
-    time: "10 mins ago",
-    intent: "Send Invoice PDF",
-    confidence: 98,
-    suggestion: "Draft & attach Invoice #1042 ($2,450.00) to Acme Corp",
-    details: "Net-30 payment terms requested for web automation project.",
-    draftText:
-      "Hi Acme Team,\n\nAttached is Invoice #1042 for $2,450.00 covering our recent automation sprint. Let me know if you have any questions!\n\nBest,\nOperations",
-  },
-  {
-    id: "item-2",
-    subject: "30-min Q4 Sync this Thursday?",
-    from: "sarah@techstartup.io",
-    senderName: "Sarah Chen",
-    time: "24 mins ago",
-    intent: "Calendar Scheduling",
-    confidence: 95,
-    suggestion: "Schedule Google Calendar event for Thursday 2:00 PM EST & reply",
-    details: "Check calendar for conflicts with current operational meetings.",
-    draftText:
-      "Hi Sarah,\n\nThursday at 2:00 PM EST works great! I've sent over a calendar invite with Google Meet link included.\n\nTalk soon!",
-  },
-  {
-    id: "item-3",
-    subject: "Supplier Shipment Update #8821",
-    from: "dispatch@parts-co.com",
-    senderName: "Parts Co Logistics",
-    time: "1 hour ago",
-    intent: "CRM Status Sync",
-    confidence: 99,
-    suggestion: "Mark order #8821 as 'In Transit' & archive email",
-    details: "FedEx Tracking: #1Z9999999999999999. Expected delivery Friday.",
-    draftText:
-      "System AutoOps Action: Update CRM Record #8821 status to 'Shipped (FedEx 1Z999...)'",
-  },
-];
+import { useEffect } from "react";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
-const initialLogs: ActivityLog[] = [
-  {
-    id: "log-1",
-    type: "received",
-    title: "Incoming Operational Email Processed",
-    description: "AI Agent analyzed invoice request from billing@acmecorp.com (98% confidence)",
-    timestamp: "10 mins ago",
-    actor: "AutoOps AI",
-  },
-  {
-    id: "log-2",
-    type: "received",
-    title: "Incoming Operational Email Processed",
-    description: "AI Agent analyzed scheduling request from sarah@techstartup.io (95% confidence)",
-    timestamp: "24 mins ago",
-    actor: "AutoOps AI",
-  },
-  {
-    id: "log-3",
-    type: "system",
-    title: "System Initialization",
-    description: "AutoOps Agent online and monitoring workspace queue",
-    timestamp: "2 hours ago",
-    actor: "System",
-  },
-];
+const initialPending: ApprovalItem[] = [];
+const initialLogs: ActivityLog[] = [];
 
 const AutoOpsContext = createContext<AutoOpsContextType | undefined>(undefined);
 
@@ -137,6 +74,42 @@ export function AutoOpsProvider({ children }: { children: React.ReactNode }) {
   const [gmailConnected, setGmailConnected] = useState<boolean>(false);
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastState[]>([]);
+
+  // Sync real pending items count from Supabase on mount
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (!user) return;
+        supabase
+          .from("agent_actions")
+          .select("id, status")
+          .eq("user_id", user.id)
+          .eq("status", "pending")
+          .then(({ data }) => {
+            if (data && Array.isArray(data)) {
+              setPendingItems(
+                data.map((item: { id: string }) => ({
+                  id: item.id,
+                  subject: "",
+                  from: "",
+                  senderName: "",
+                  time: "",
+                  intent: "",
+                  confidence: 0,
+                  suggestion: "",
+                  details: "",
+                  draftText: "",
+                }))
+              );
+            }
+          });
+      });
+    } catch {
+      // Non-blocking
+    }
+  }, []);
   const [settings, setSettings] = useState({
     responseTone: true,
     suggestBeforeSending: true,

@@ -29,7 +29,7 @@ interface InboundEventRecord {
 
 export default async function DashboardPage() {
   let userEmail = "Guest User";
-  let emailsProcessed = 0;
+  let emailsIngested = 0;
   let pendingApproval = 0;
   let approvedToday = 0;
   let approvalRate = "0%";
@@ -47,13 +47,13 @@ export default async function DashboardPage() {
         userEmail = user.email || "Authenticated User";
         dbConnected = true;
 
-        // 1. Emails Processed (count of inbound_events for current user)
+        // 1. Emails Ingested (count of inbound_events for current user)
         const { count: eventsCount } = await supabase
           .from("inbound_events")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id);
 
-        emailsProcessed = eventsCount || 0;
+        emailsIngested = eventsCount || 0;
 
         // 2. Pending Approval (count of agent_actions where status = 'pending')
         const { count: pendingCount } = await supabase
@@ -146,9 +146,9 @@ export default async function DashboardPage() {
         className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
       >
         <MetricCard
-          label="Emails Processed"
-          value={emailsProcessed}
-          hint="From inbound_events table"
+          label="Emails Ingested"
+          value={emailsIngested}
+          hint="Total emails received"
           icon={Mail}
           delay={0}
         />
@@ -228,7 +228,7 @@ export default async function DashboardPage() {
         )}
       </section>
 
-      {/* Phase 3 — Recent Inbound Emails */}
+      {/* Phase 3 & 6 — Recent Inbound Emails */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
@@ -236,7 +236,7 @@ export default async function DashboardPage() {
               <Mail className="size-5 text-violet-600" /> Recent Inbound Emails
             </h2>
             <p className="text-xs text-muted-foreground">
-              Emails ingested via the Gmail → Zapier → AutoOps webhook pipeline.
+              Emails ingested directly via Gmail API and inbound webhooks.
             </p>
           </div>
           <Button
@@ -258,9 +258,8 @@ export default async function DashboardPage() {
             </div>
             <h3 className="text-base font-bold text-foreground">No emails ingested yet</h3>
             <p className="text-xs text-muted-foreground max-w-sm mx-auto mt-1 leading-relaxed">
-              Connect your Gmail account via Zapier and point the webhook to{" "}
-              <code className="font-mono bg-violet-50 px-1 rounded">/api/webhooks/inbound</code>.
-              Incoming emails will appear here instantly.
+              Connect your Google account in Settings to enable direct Gmail ingestion.
+              Incoming emails will appear here automatically.
             </p>
           </Card>
         ) : (

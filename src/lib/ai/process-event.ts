@@ -82,12 +82,11 @@ export async function processInboundEvent(
   const { count: existingCount } = await (supabase
     .from("agent_actions") as any)
     .select("id", { count: "exact", head: true })
-    .eq("event_id", eventId)
-    .neq("status", "rejected") as { count: number | null };
+    .eq("event_id", eventId) as { count: number | null };
 
   if (existingCount && existingCount > 0) {
     console.info(
-      `[AutoOps processEvent] Event ${eventId} already has an active agent_action — skipping.`
+      `[AutoOps processEvent] Event ${eventId} already has an agent_action — skipping.`
     );
     return;
   }

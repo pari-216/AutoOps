@@ -15,6 +15,7 @@ export interface IngestResult {
   inserted: number;
   skipped: number;
   errors: number;
+  retriedProcessed?: number;
 }
 
 interface GmailHeader {
@@ -291,5 +292,70 @@ export async function ingestGmailForUser(userId: string): Promise<IngestResult> 
     .update({ last_synced_at: new Date().toISOString() })
     .eq("id", account.id);
 
+  // 7. Safe retry for existing unprocessed inbound events (batch limit of 15)
+  try {
+    const retried = await processUnprocessedEventsForUser(userId, 15);
+    result.retriedProcessed = retried;
+  } catch (retryErr) {
+    console.error(`[Gmail Ingest] Retry unprocessed events error for user ${userId}:`, retryErr);
+  }
+
   return result;
+}
+
+/**
+ * Scans for inbound_events belonging to the user that do not yet have an agent_action,
+ * and processes them through the AI pipeline.
+ */
+export async function processUnprocessedEventsForUser(
+  userId: string,
+  limit = 15
+): Promise<number> {
+  const supabase = createAdminClient();
+
+  // 1. Get IDs of events that already have an agent_action (any status)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: actions, error: actionsError } = await (supabase
+    .from("agent_actions") as any)
+    .select("event_id")
+    .eq("user_id", userId);
+
+  if (actionsError) {
+    console.error(`[AI Ingest Retry] Error fetching agent_actions for user ${userId}:`, actionsError);
+    return 0;
+  }
+
+  const processedEventIds = new Set<string>(
+    (actions || []).map((a: { event_id: string }) => a.event_id).filter(Boolean)
+  );
+
+  // 2. Fetch recent inbound_events for this user
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: events, error: eventsError } = await (supabase
+    .from("inbound_events") as any)
+    .select("id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(100);
+
+  if (eventsError || !events) {
+    console.error(`[AI Ingest Retry] Error fetching inbound_events for user ${userId}:`, eventsError);
+    return 0;
+  }
+
+  const unprocessed = (events as { id: string }[])
+    .filter((e) => !processedEventIds.has(e.id))
+    .slice(0, limit);
+
+  let processedCount = 0;
+  for (const event of unprocessed) {
+    try {
+      await processInboundEvent(event.id, userId);
+      processedCount++;
+    } catch (err) {
+      console.error(`[AI Ingest Retry] Failed to process event ${event.id}:`, err);
+    }
+  }
+
+  return processedCount;
 }

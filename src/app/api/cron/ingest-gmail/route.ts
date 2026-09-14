@@ -60,6 +60,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     inserted: number;
     skipped: number;
     errors: number;
+    retriedProcessed: number;
     success: boolean;
     error?: string;
   }[] = [];
@@ -74,6 +75,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         inserted: stats.inserted,
         skipped: stats.skipped,
         errors: stats.errors,
+        retriedProcessed: stats.retriedProcessed || 0,
         success: true,
       });
     } catch (err) {
@@ -87,6 +89,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         inserted: 0,
         skipped: 0,
         errors: 1,
+        retriedProcessed: 0,
         success: false,
         error: errorMessage,
       });
@@ -94,13 +97,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const totalInserted = summaries.reduce((acc, s) => acc + s.inserted, 0);
-  console.info(`[Cron Ingest] Ingestion complete across ${activeAccounts.length} user accounts. ${totalInserted} new email(s) ingested.`);
+  const totalRetriedProcessed = summaries.reduce((acc, s) => acc + s.retriedProcessed, 0);
+  console.info(
+    `[Cron Ingest] Ingestion complete across ${activeAccounts.length} user accounts. ` +
+      `${totalInserted} new email(s) ingested, ${totalRetriedProcessed} unprocessed email(s) processed by AI.`
+  );
 
   return NextResponse.json({
     ok: true,
     timestamp: new Date().toISOString(),
     accountsProcessed: activeAccounts.length,
     totalInserted,
+    totalRetriedProcessed,
     details: summaries,
   });
 }

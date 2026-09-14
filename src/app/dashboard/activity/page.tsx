@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, CheckCircle2, Mail, Zap, XCircle } from "lucide-react";
+import { Activity, CheckCircle2, Mail, Zap, XCircle, Pencil } from "lucide-react";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,14 @@ function getActionMeta(actionType: string): {
         textClass: "text-emerald-700",
         borderClass: "border-emerald-200",
         Icon: CheckCircle2,
+      };
+    case "action_edited":
+      return {
+        label: "Action Edited & Approved",
+        bgClass: "bg-purple-50",
+        textClass: "text-purple-700",
+        borderClass: "border-purple-200",
+        Icon: Pencil,
       };
     case "action_rejected":
       return {

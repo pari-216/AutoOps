@@ -1,7 +1,6 @@
 import {
   CheckCircle2,
   Clock3,
-  Inbox,
   Mail,
   Zap,
   ArrowRight,
@@ -33,7 +32,7 @@ export default async function DashboardPage() {
   let emailsProcessed = 0;
   let pendingApproval = 0;
   let approvedToday = 0;
-  let automationRate = "0%";
+  let approvalRate = "0%";
   let dbConnected = false;
   let recentEmails: InboundEventRecord[] = [];
 
@@ -65,34 +64,34 @@ export default async function DashboardPage() {
 
         pendingApproval = pendingCount || 0;
 
-        // 3. Approved Today
+        // 3. Approved Today (status IN ('approved', 'edited') updated today)
         const todayStr = new Date().toISOString().split("T")[0];
         const { count: approvedCount } = await supabase
           .from("agent_actions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id)
-          .eq("status", "approved")
-          .gte("created_at", `${todayStr}T00:00:00.000Z`);
+          .in("status", ["approved", "edited"])
+          .gte("updated_at", `${todayStr}T00:00:00.000Z`);
 
         approvedToday = approvedCount || 0;
 
-        // 4. Automation Rate (approved / total * 100)
+        // 4. Approval Rate (approved + edited / total actions * 100)
         const { count: totalActions } = await supabase
           .from("agent_actions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id);
 
-        const { count: allApproved } = await supabase
+        const { count: processedTotal } = await supabase
           .from("agent_actions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id)
-          .eq("status", "approved");
+          .in("status", ["approved", "edited"]);
 
         const total = totalActions || 0;
-        const approvedTotal = allApproved || 0;
-        automationRate = total > 0 ? `${Math.round((approvedTotal / total) * 100)}%` : "0%";
+        const processed = processedTotal || 0;
+        approvalRate = total > 0 ? `${Math.round((processed / total) * 100)}%` : "0%";
 
-        // 5. Recent inbound emails (Phase 3)
+        // 5. Recent inbound emails
         const { data: recentData } = await supabase
           .from("inbound_events")
           .select("id, sender_email, sender_name, subject, received_at, created_at, source")
@@ -141,7 +140,7 @@ export default async function DashboardPage() {
         </div>
       </PageHeader>
 
-      {/* Real Supabase Metrics */}
+      {/* Metrics */}
       <section
         aria-label="Key metrics"
         className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
@@ -163,14 +162,14 @@ export default async function DashboardPage() {
         <MetricCard
           label="Approved Today"
           value={approvedToday}
-          hint="Approved agent actions"
+          hint="Approved or edited actions"
           icon={CheckCircle2}
           delay={200}
         />
         <MetricCard
-          label="Automation Rate"
-          value={automationRate}
-          hint="Approved / total actions"
+          label="Approval Rate"
+          value={approvalRate}
+          hint="Approved or edited / total actions"
           icon={Zap}
           delay={300}
         />
@@ -181,7 +180,7 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold tracking-tight text-foreground flex items-center gap-2">
-              <Inbox className="size-5 text-violet-600" /> Operational Approval Queue
+              <Clock3 className="size-5 text-violet-600" /> Operational Approval Queue
             </h2>
             <p className="text-xs text-muted-foreground">
               Review AI suggestions before any operational action is dispatched.
@@ -206,17 +205,22 @@ export default async function DashboardPage() {
             </div>
             <h3 className="text-base font-bold text-foreground">No pending approvals</h3>
             <p className="text-xs text-muted-foreground max-w-sm mx-auto mt-1">
-              Your Supabase `agent_actions` queue is clear. In Phase 3, incoming Zapier emails will populate this queue automatically.
+              Your approval queue is clear. New AI recommendations will appear here when incoming emails are processed.
             </p>
           </Card>
         ) : (
-          <Card className="border-violet-100 bg-white p-6 rounded-2xl shadow-xs">
-            <p className="text-sm font-bold text-foreground">
-              You have {pendingApproval} pending item(s) awaiting review.
-            </p>
+          <Card className="border-violet-100 bg-white p-6 rounded-2xl shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-foreground">
+                You have {pendingApproval} pending item(s) awaiting review.
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Urgent emails require your immediate attention before dispatch.
+              </p>
+            </div>
             <Button
               asChild
-              className="mt-4 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white text-xs font-bold"
+              className="rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white text-xs font-bold shrink-0"
             >
               <Link href="/dashboard/queue">Go to Approval Queue</Link>
             </Button>

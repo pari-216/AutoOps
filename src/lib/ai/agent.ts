@@ -1,18 +1,19 @@
 /**
  * agent.ts — Provider-isolated AI agent for AutoOps.
  *
- * This file is the ONLY place where the OpenAI API is called.
+ * This file is the ONLY place where the Groq API is called.
  * To swap providers, only this file needs to change.
  *
  * SECURITY:
- * - OPENAI_API_KEY is read server-side only — never NEXT_PUBLIC_*.
+ * - GROQ_API_KEY is read server-side only — never NEXT_PUBLIC_*.
  * - The key is never logged.
  * - Raw email bodies are never logged at info level.
  *
- * Provider: OpenAI (gpt-4o-mini)
+ * Provider: Groq (llama-3.1-8b-instant)
  * Structured output: JSON mode (response_format: { type: "json_object" })
  */
 
+import { Groq } from "groq-sdk";
 import { AgentInput, AgentOutput, Classification } from "./types";
 import { validateAgentOutput } from "./schema";
 
@@ -70,11 +71,11 @@ Do not include any text outside the JSON object.`;
 // Provider call
 // ---------------------------------------------------------------------------
 
-function getOpenAIKey(): string {
-  const key = process.env.OPENAI_API_KEY;
+function getGroqKey(): string {
+  const key = process.env.GROQ_API_KEY;
   if (!key) {
     throw new Error(
-      "[AutoOps AI] OPENAI_API_KEY is not set. " +
+      "[AutoOps AI] GROQ_API_KEY is not set. " +
         "Add it to .env.local (server-only, never NEXT_PUBLIC_). " +
         "Configure the same variable in your Vercel project settings."
     );
@@ -105,11 +106,11 @@ function buildUserMessage(input: AgentInput): string {
 }
 
 /**
- * Call the OpenAI API and return a validated AgentOutput.
+ * Call the Groq API and return a validated AgentOutput.
  * Throws a descriptive error on any failure — callers must catch.
  */
 export async function callAgent(input: AgentInput): Promise<AgentOutput> {
-  const apiKey = getOpenAIKey(); // throws if missing
+  const apiKey = getGroqKey(); // throws if missing
 
   const userMessage = buildUserMessage(input);
 
@@ -118,45 +119,25 @@ export async function callAgent(input: AgentInput): Promise<AgentOutput> {
     `[AutoOps AI] Calling agent. subject="${input.subject}" sender="${input.sender_email}"`
   );
 
-  // ── OpenAI API call (raw fetch — no SDK dependency) ───────────────────────
-  // Using raw fetch keeps the bundle light and avoids version conflicts.
+  const groq = new Groq({ apiKey });
   let responseText: string;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" },
-        temperature: 0.2, // Low temperature for consistent, deterministic output
-        max_tokens: 1024,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
-      }),
-      // Vercel serverless functions have a max execution time.
-      // We set a 25-second timeout to stay within the 30s limit.
-      signal: AbortSignal.timeout(25_000),
+    const response = await groq.chat.completions.create({
+      model: "llama-3.1-8b-instant",
+      response_format: { type: "json_object" },
+      temperature: 0.2, // Low temperature for consistent, deterministic output
+      max_tokens: 1024,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userMessage },
+      ],
     });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => "(unreadable)");
-      throw new Error(
-        `OpenAI API returned ${response.status}: ${errorBody.slice(0, 200)}`
-      );
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const json: any = await response.json();
-    responseText = json?.choices?.[0]?.message?.content;
+    responseText = response.choices[0]?.message?.content || "";
 
     if (typeof responseText !== "string" || !responseText.trim()) {
-      throw new Error("OpenAI returned an empty or unexpected response shape.");
+      throw new Error("Groq returned an empty or unexpected response shape.");
     }
   } catch (err) {
     // Re-throw with a prefixed message so callers can identify AI failures

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { executeApprovedAction } from "@/lib/execution/dispatcher";
 
 const MAX_REPLY_LENGTH = 5000;
 
@@ -124,7 +125,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       console.warn("[AutoOps edit] Failed to insert activity_log:", logError);
     }
 
-    return NextResponse.json({ ok: true, action: updatedAction });
+    // Trigger execution pipeline for edited content
+    let executionResult = null;
+    try {
+      executionResult = await executeApprovedAction(updatedAction.id, user.id);
+    } catch (execErr) {
+      console.error(`[AutoOps edit] Execution error for action ${updatedAction.id}:`, execErr);
+      executionResult = {
+        success: false,
+        actionId: updatedAction.id,
+        executionStatus: "failed",
+        error: execErr instanceof Error ? execErr.message : "Execution failed",
+      };
+    }
+
+    return NextResponse.json({
+      ok: true,
+      action: updatedAction,
+      execution: executionResult,
+    });
   } catch (err) {
     console.error("[AutoOps edit] Unexpected error:", err);
     return NextResponse.json(

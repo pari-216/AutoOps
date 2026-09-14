@@ -17,7 +17,7 @@ export default async function ApprovalQueuePage() {
         userId = user.id;
 
         const select =
-          "id, user_id, event_id, classification, suggested_action, drafted_reply, original_drafted_reply, confidence, reason, status, created_at, processed_at, inbound_events(sender_email, sender_name, subject, received_at)";
+          "id, user_id, event_id, classification, suggested_action, drafted_reply, original_drafted_reply, confidence, reason, status, execution_status, executed_at, execution_error, external_action_id, created_at, processed_at, inbound_events(sender_email, sender_name, subject, received_at)";
 
         const { data } = await supabase
           .from("agent_actions")

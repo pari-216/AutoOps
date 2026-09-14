@@ -43,7 +43,11 @@ export interface AgentActionWithEvent {
   original_drafted_reply?: string | null;
   confidence: number | null;
   reason: string | null;
-  status: "pending" | "approved" | "edited" | "rejected" | string;
+  status: "pending" | "approved" | "edited" | "rejected" | "executing" | "executed" | "failed" | string;
+  execution_status?: "unexecuted" | "executing" | "executed" | "failed" | string | null;
+  executed_at?: string | null;
+  execution_error?: string | null;
+  external_action_id?: string | null;
   created_at: string;
   processed_at?: string | null;
   inbound_events:
@@ -445,10 +449,49 @@ function ActionCard({
                 <XCircle className="size-3 mr-1" /> Rejected
               </Badge>
             )}
+
+            {/* Execution status badges */}
+            {action.execution_status === "executed" && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-bold border-emerald-200 bg-emerald-100 text-emerald-800 px-2 py-0.5"
+              >
+                <CheckCircle2 className="size-3 mr-1" /> Executed
+              </Badge>
+            )}
+            {action.execution_status === "executing" && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-bold border-sky-200 bg-sky-50 text-sky-700 px-2 py-0.5"
+              >
+                <Loader2 className="size-3 animate-spin mr-1" /> Executing...
+              </Badge>
+            )}
+            {action.execution_status === "failed" && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-bold border-rose-300 bg-rose-100 text-rose-800 px-2 py-0.5"
+              >
+                <AlertTriangle className="size-3 mr-1" /> Execution Failed
+              </Badge>
+            )}
+
             <span className="text-[10px] text-slate-400 font-mono">
               ID: {action.id.slice(0, 8)}…
             </span>
           </div>
+
+          {/* Execution details */}
+          {action.execution_error && (
+            <p className="text-[11px] font-semibold text-rose-600 w-full pt-1 border-t border-rose-100">
+              Execution Error: {action.execution_error}
+            </p>
+          )}
+          {action.external_action_id && (
+            <p className="text-[10px] text-slate-500 font-mono w-full">
+              External ID: {action.external_action_id}
+            </p>
+          )}
 
           {/* Pending Action Buttons */}
           {isPending && !isEditing && (

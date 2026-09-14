@@ -9,7 +9,7 @@
  * - The key is never logged.
  * - Raw email bodies are never logged at info level.
  *
- * Provider: Groq (llama-3.1-8b-instant)
+ * Provider: Groq (openai/gpt-oss-20b)
  * Structured output: JSON mode (response_format: { type: "json_object" })
  */
 
@@ -124,7 +124,7 @@ export async function callAgent(input: AgentInput): Promise<AgentOutput> {
 
   try {
     const response = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant",
+      model: "openai/gpt-oss-20b",
       response_format: { type: "json_object" },
       temperature: 0.2, // Low temperature for consistent, deterministic output
       max_tokens: 1024,

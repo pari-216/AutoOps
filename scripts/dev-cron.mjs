@@ -14,8 +14,8 @@
  *   node scripts/dev-cron.mjs --interval 60  # Runs every 60 seconds
  *
  * NOTE: This is strictly for local development testing (`npm run dev:cron`).
- * In production, Vercel Cron automatically invokes `/api/cron/ingest-gmail`
- * according to `vercel.json` with the production CRON_SECRET.
+ * In production, an external HTTP cron scheduler (e.g. cron-job.org) invokes
+ * `/api/cron/ingest-gmail` with the production CRON_SECRET every 2 minutes.
  */
 
 import fs from "node:fs";

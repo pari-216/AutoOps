@@ -77,27 +77,28 @@ assert(formatDateTime("") === "—", "Returns '—' for empty string");
 assert(formatDateTime("not-a-valid-date") === "—", "Returns '—' for invalid date string");
 
 // ---------------------------------------------------------------------------
-// 2. Vercel Cron Configuration Integrity Tests
+// 2. Production Cron Ingestion Architecture Tests
 // ---------------------------------------------------------------------------
-console.log("\nSuite 2: Vercel Cron Configuration (vercel.json)");
+console.log("\nSuite 2: Production Cron Ingestion Architecture");
 
 const vercelJsonPath = path.resolve(__dirname, "../../../vercel.json");
 const vercelJsonExists = fs.existsSync(vercelJsonPath);
-assert(vercelJsonExists, "vercel.json exists in root directory");
 
 if (vercelJsonExists) {
   const content = JSON.parse(fs.readFileSync(vercelJsonPath, "utf-8"));
-  assert(Array.isArray(content.crons), "vercel.json defines 'crons' array");
-  
-  const ingestCron = content.crons.find(
-    (c: { path: string; schedule: string }) => c.path === "/api/cron/ingest-gmail"
-  );
-  assert(Boolean(ingestCron), "Cron path '/api/cron/ingest-gmail' is configured");
   assert(
-    ingestCron?.schedule === "*/2 * * * *",
-    `Cron schedule is '*/2 * * * *' (actual: '${ingestCron?.schedule}')`
+    !content.crons || content.crons.length === 0,
+    "vercel.json does not declare crons (migrated to external HTTP cron scheduler)"
   );
+} else {
+  assert(true, "vercel.json removed (allowing standard Vercel Hobby deployment without cron block)");
 }
+
+const ingestRoutePath = path.resolve(__dirname, "../../app/api/cron/ingest-gmail/route.ts");
+assert(fs.existsSync(ingestRoutePath), "/api/cron/ingest-gmail endpoint exists");
+
+const devCronScriptPath = path.resolve(__dirname, "../../../scripts/dev-cron.mjs");
+assert(fs.existsSync(devCronScriptPath), "scripts/dev-cron.mjs exists for local development");
 
 // ---------------------------------------------------------------------------
 // 3. Repository-wide SSR Hydration Risk Audit

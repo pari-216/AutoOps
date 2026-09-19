@@ -135,6 +135,67 @@ Expected response:
 
 ---
 
+## Production Gmail Ingestion Scheduler
+
+AutoOps uses an external HTTP cron scheduler (such as [cron-job.org](https://cron-job.org)) to trigger Gmail synchronization every ~2 minutes. AutoOps does **not** use Vercel Cron, ensuring seamless deployment on the Vercel Hobby plan.
+
+### Architecture
+
+```
+┌─────────────────────────┐
+│   cron-job.org (Free)   │
+│   Every ~2 minutes      │
+└────────────┬────────────┘
+             │ HTTPS GET
+             │ Authorization: Bearer YOUR_CRON_SECRET
+             ▼
+┌─────────────────────────────────────────┐
+│ AutoOps Vercel Deployment               │
+│ GET /api/cron/ingest-gmail              │
+└────────────┬────────────────────────────┘
+             ▼
+      Gmail Ingestion
+             ▼
+    Supabase Inbound Events
+             ▼
+       Groq AI Agent
+             ▼
+      Approval Queue
+             ▼
+      Human Approval
+             ▼
+    Gmail / Calendar Action
+```
+
+### Production Setup (cron-job.org)
+
+1. Create a free account at [cron-job.org](https://cron-job.org).
+2. Create a new Cron Job with the following configuration:
+   - **Title**: `AutoOps Gmail Ingest`
+   - **URL**: `https://YOUR-DOMAIN.com/api/cron/ingest-gmail`
+   - **Schedule**: Every `2` minutes (or desired interval)
+   - **Request Method**: `GET`
+   - **Request Headers**:
+     - Key: `Authorization`
+     - Value: `Bearer YOUR_CRON_SECRET`
+3. Save and enable the job.
+
+> **Security Requirements**:
+> - Replace `YOUR-DOMAIN.com` with your deployed production domain.
+> - Replace `YOUR_CRON_SECRET` with the exact secret matching `CRON_SECRET` in your Vercel Project Environment Variables.
+> - `CRON_SECRET` must remain server-side only. Never expose it in GitHub, client-side bundles, or prefix it with `NEXT_PUBLIC_`.
+
+---
+
+## Local Development vs. Production Cron
+
+| Environment | Trigger Mechanism | Command / Setup |
+|---|---|---|
+| **Local Dev** | Local runner script (`scripts/dev-cron.mjs`) | `npm run dev:cron` (runs every 2 min)<br>`npm run dev:cron:once` (single execution) |
+| **Production** | External HTTP Cron Scheduler | [cron-job.org](https://cron-job.org) pinging `GET /api/cron/ingest-gmail` with Bearer auth |
+
+---
+
 ## Getting Started
 
 ```bash

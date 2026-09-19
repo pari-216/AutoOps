@@ -9,6 +9,7 @@ import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { LEGAL_CONFIG } from "@/lib/legal";
 
 function LoginFormContent() {
   const router = useRouter();
@@ -18,6 +19,7 @@ function LoginFormContent() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(
@@ -29,6 +31,13 @@ function LoginFormContent() {
 
   const handleGoogleSignIn = async () => {
     setErrorMsg(null);
+
+    // Enforce Terms & Privacy agreement for new signups
+    if (mode === "signup" && !agreedToTerms) {
+      setErrorMsg("Please agree to the Terms of Service and acknowledge the Privacy Policy to create an account.");
+      return;
+    }
+
     setGoogleLoading(true);
 
     try {
@@ -39,12 +48,15 @@ function LoginFormContent() {
 
       const supabase = createClient();
       const origin = typeof window !== "undefined" ? window.location.origin : "";
+      
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(
-            redirectPath
-          )}`,
+          redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(redirectPath)}`,
+          queryParams: mode === "signup" ? {
+            access_type: "offline",
+            prompt: "consent",
+          } : undefined,
         },
       });
 
@@ -62,6 +74,12 @@ function LoginFormContent() {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
+
+    if (mode === "signup" && !agreedToTerms) {
+      setErrorMsg("Please agree to the Terms of Service and acknowledge the Privacy Policy to create an account.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -87,6 +105,8 @@ function LoginFormContent() {
         }
       } else {
         const origin = typeof window !== "undefined" ? window.location.origin : "";
+        const now = new Date().toISOString();
+
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
@@ -94,6 +114,12 @@ function LoginFormContent() {
             emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(
               redirectPath
             )}`,
+            data: {
+              terms_accepted_at: now,
+              terms_version: LEGAL_CONFIG.currentTermsVersion,
+              privacy_acknowledged_at: now,
+              privacy_version: LEGAL_CONFIG.currentPrivacyVersion,
+            },
           },
         });
 
@@ -101,6 +127,16 @@ function LoginFormContent() {
           setErrorMsg(error.message);
           setLoading(false);
         } else if (data.session) {
+          // Record consent via API in background
+          fetch("/api/auth/consent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              termsVersion: LEGAL_CONFIG.currentTermsVersion,
+              privacyVersion: LEGAL_CONFIG.currentPrivacyVersion,
+            }),
+          }).catch(() => {});
+
           router.push(redirectPath);
           router.refresh();
         } else {
@@ -152,9 +188,11 @@ function LoginFormContent() {
           <Button
             type="button"
             onClick={handleGoogleSignIn}
-            disabled={googleLoading || loading}
+            disabled={googleLoading || loading || (mode === "signup" && !agreedToTerms)}
             variant="outline"
-            className="h-11 w-full rounded-xl border-violet-200 bg-white font-medium hover:bg-violet-50 transition-transform active:scale-95 text-foreground"
+            className={`h-11 w-full rounded-xl border-violet-200 bg-white font-medium hover:bg-violet-50 transition-all text-foreground ${
+              mode === "signup" && !agreedToTerms ? "opacity-60 cursor-not-allowed" : "active:scale-95"
+            }`}
           >
             {googleLoading ? (
               <Loader2 className="size-4 animate-spin text-violet-600" />
@@ -178,7 +216,7 @@ function LoginFormContent() {
                 />
               </svg>
             )}
-            Continue with Google
+            {mode === "signin" ? "Continue with Google" : "Sign up with Google"}
           </Button>
 
           <div className="relative">
@@ -244,10 +282,53 @@ function LoginFormContent() {
               />
             </div>
 
+            {/* Signup terms & privacy consent checkbox */}
+            {mode === "signup" && (
+              <div className="flex items-start gap-2.5 pt-1 animate-fade-in">
+                <input
+                  id="terms-checkbox"
+                  type="checkbox"
+                  required
+                  checked={agreedToTerms}
+                  onChange={(e) => {
+                    setAgreedToTerms(e.target.checked);
+                    if (errorMsg) setErrorMsg(null);
+                  }}
+                  className="size-4 shrink-0 rounded border-violet-300 text-violet-600 focus:ring-violet-500/30 focus:ring-2 mt-0.5 cursor-pointer accent-violet-600"
+                />
+                <label
+                  htmlFor="terms-checkbox"
+                  className="text-xs text-muted-foreground leading-snug cursor-pointer select-none"
+                >
+                  I agree to the{" "}
+                  <Link
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-violet-600 hover:text-violet-700 font-semibold underline underline-offset-2"
+                  >
+                    Terms of Service
+                  </Link>{" "}
+                  and acknowledge the{" "}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-violet-600 hover:text-violet-700 font-semibold underline underline-offset-2"
+                  >
+                    Privacy Policy
+                  </Link>
+                  .
+                </label>
+              </div>
+            )}
+
             <Button
               type="submit"
-              disabled={loading || googleLoading}
-              className="h-11 w-full rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 font-bold shadow-lg shadow-violet-500/25 transition-transform hover:scale-[1.01] active:scale-95 text-white"
+              disabled={loading || googleLoading || (mode === "signup" && !agreedToTerms)}
+              className={`h-11 w-full rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 font-bold shadow-lg shadow-violet-500/25 transition-all text-white ${
+                mode === "signup" && !agreedToTerms ? "opacity-60 cursor-not-allowed" : "hover:scale-[1.01] active:scale-95"
+              }`}
             >
               {loading ? (
                 <Loader2 className="size-4 animate-spin text-white" />
@@ -302,7 +383,6 @@ export default function LoginPage() {
   return (
     <div className="relative flex min-h-dvh flex-1 flex-col bg-background">
       {/* Ambient background */}
-      <div className="bg-grid pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]" />
       <div className="pointer-events-none absolute -top-32 left-1/2 size-[420px] -translate-x-1/2 rounded-full bg-violet-200/40 blur-3xl" />
       <div className="pointer-events-none absolute right-[12%] bottom-0 size-72 rounded-full bg-purple-200/30 blur-3xl" />
 

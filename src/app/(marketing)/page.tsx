@@ -135,8 +135,8 @@ const footerLinks = [
   {
     title: "Legal & Trust",
     links: [
-      { name: "Privacy Policy", href: "#" },
-      { name: "Terms of Service", href: "#" },
+      { name: "Privacy Policy", href: "/privacy" },
+      { name: "Terms of Service", href: "/terms" },
       { name: "Security Architecture", href: "#security" },
     ],
   },

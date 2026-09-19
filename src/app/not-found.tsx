@@ -96,8 +96,12 @@ export default function NotFound() {
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 w-full py-4 text-center text-xs text-muted-foreground">
-        AutoOps · AI Agent Orchestrator for Operations
+      <footer className="relative z-10 w-full py-4 text-center text-xs text-muted-foreground flex flex-wrap items-center justify-center gap-3">
+        <span>AutoOps · AI Agent Orchestrator for Operations</span>
+        <span>·</span>
+        <Link href="/privacy" className="hover:text-violet-700 transition-colors">Privacy Policy</Link>
+        <span>·</span>
+        <Link href="/terms" className="hover:text-violet-700 transition-colors">Terms of Service</Link>
       </footer>
     </div>
   );

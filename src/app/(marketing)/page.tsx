@@ -175,19 +175,19 @@ export default function LandingPage() {
   return (
     <>
       {/* ------------------------------ Hero Section ------------------------------ */}
-      <section className="relative mx-auto w-full max-w-6xl px-4 pt-10 pb-20 sm:px-6 sm:pt-16 sm:pb-28">
-        {/* Interactive flowing ripple/wave canvas background */}
+      <section className="relative w-full overflow-hidden">
+        {/* Full-width 2D Interactive Ripple Grid Background spanning edge-to-edge */}
         <HeroInteractiveBackground
-          count={26}
-          movement={0.7}
-          force={150}
-          strokeColor="rgba(139, 92, 246, 0.16)"
-          className="rounded-3xl"
+          gridSize={52}
+          movement={0.75}
+          force={160}
+          strokeColor="rgba(139, 92, 246, 0.13)"
         />
 
-        <div className="relative z-10 mx-auto max-w-3xl text-center">
-          {/* Eyebrow badge */}
-          <div className="inline-flex items-center gap-2 rounded-full border border-violet-200/90 bg-white/90 px-4 py-1.5 text-xs font-semibold text-violet-700 shadow-sm shadow-violet-500/10 backdrop-blur-md transition-all hover:border-violet-300">
+        <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pt-10 pb-20 sm:px-6 sm:pt-16 sm:pb-28">
+          <div className="mx-auto max-w-3xl text-center">
+            {/* Eyebrow badge */}
+            <div className="inline-flex items-center gap-2 rounded-full border border-violet-200/90 bg-white/90 px-4 py-1.5 text-xs font-semibold text-violet-700 shadow-sm shadow-violet-500/10 backdrop-blur-md transition-all hover:border-violet-300">
             <Sparkles className="size-3.5 text-violet-600 animate-pulse-soft" />
             <span>AI-powered operations, human-approved.</span>
           </div>
@@ -386,7 +386,8 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
 
       {/* --------------------------- Operational Workflow ----------------------------- */}
       <section

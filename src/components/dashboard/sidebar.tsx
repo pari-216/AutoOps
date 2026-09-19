@@ -22,11 +22,11 @@ export function Sidebar() {
             <div className="flex items-center gap-2">
               <Sparkles className="size-4 text-violet-600" />
               <p className="text-sm font-bold text-foreground">
-                Phase 2 Active
+                AutoOps Live
               </p>
             </div>
             <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
-              Supabase Auth & Row Level Security active.
+              Supabase Auth & RLS Guard Active.
             </p>
           </div>
         </div>

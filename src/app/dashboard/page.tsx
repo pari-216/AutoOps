@@ -157,7 +157,7 @@ export default async function DashboardPage() {
               ? "Metrics load error — check server logs"
               : dbConnected
               ? "Supabase PostgreSQL RLS Active"
-              : "Phase 2 Preview"}
+              : "Realtime Operational Engine"}
           </Badge>
         </div>
       </PageHeader>

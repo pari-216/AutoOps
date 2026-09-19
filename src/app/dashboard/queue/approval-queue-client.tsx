@@ -111,6 +111,21 @@ function sortAgentActions(actions: AgentActionWithEvent[]): AgentActionWithEvent
   });
 }
 
+/**
+ * Deduplicate agent actions by action ID to prevent duplicate card rendering.
+ */
+function dedupActionsById(actions: AgentActionWithEvent[]): AgentActionWithEvent[] {
+  const seen = new Set<string>();
+  const result: AgentActionWithEvent[] = [];
+  for (const action of actions) {
+    if (action?.id && !seen.has(action.id)) {
+      seen.add(action.id);
+      result.push(action);
+    }
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Visual config
 // ---------------------------------------------------------------------------
@@ -604,9 +619,9 @@ export function ApprovalQueueClient({
     type: "success" | "error";
   } | null>(null);
 
-  // Sync state when props update
+  // Sync state when props update with strict ID deduplication
   useEffect(() => {
-    setActions(initialActions);
+    setActions(dedupActionsById(initialActions));
   }, [initialActions]);
 
   // Set up Supabase Realtime listener
@@ -624,7 +639,38 @@ export function ApprovalQueueClient({
           table: "agent_actions",
           filter: `user_id=eq.${userId}`,
         },
-        () => {
+        (payload) => {
+          // Handle Realtime updates locally without creating duplicates
+          if (payload.eventType === "INSERT") {
+            const newRecord = payload.new as Partial<AgentActionWithEvent>;
+            if (newRecord?.id) {
+              setActions((prev) => {
+                // If an INSERT event is received for an ID already present, do not add it twice
+                if (prev.some((a) => a.id === newRecord.id)) {
+                  return prev;
+                }
+                return dedupActionsById([newRecord as AgentActionWithEvent, ...prev]);
+              });
+            }
+          } else if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Partial<AgentActionWithEvent>;
+            if (updated?.id) {
+              setActions((prev) =>
+                prev.map((a) =>
+                  a.id === updated.id
+                    ? { ...a, ...updated }
+                    : a
+                )
+              );
+            }
+          } else if (payload.eventType === "DELETE") {
+            const oldRecord = payload.old as { id?: string };
+            if (oldRecord?.id) {
+              setActions((prev) => prev.filter((a) => a.id !== oldRecord.id));
+            }
+          }
+
+          // Authoritative refresh to reload full joined relations from server
           startTransition(() => {
             router.refresh();
           });
@@ -771,8 +817,10 @@ export function ApprovalQueueClient({
     }
   };
 
-  // Filter & Sort
-  const filteredActions = actions.filter((action) => {
+  // Filter & Sort strictly on deduplicated actions
+  const dedupedActions = dedupActionsById(actions);
+
+  const filteredActions = dedupedActions.filter((action) => {
     // 1. Status Filter
     if (statusTab === "pending" && action.status !== "pending") return false;
     if (statusTab === "approved" && action.status !== "approved") return false;
@@ -809,12 +857,12 @@ export function ApprovalQueueClient({
 
   const sortedActions = sortAgentActions(filteredActions);
 
-  // Counts for status tabs
-  const pendingCount = actions.filter((a) => a.status === "pending").length;
-  const approvedCount = actions.filter((a) => a.status === "approved").length;
-  const editedCount = actions.filter((a) => a.status === "edited").length;
-  const rejectedCount = actions.filter((a) => a.status === "rejected").length;
-  const allCount = actions.length;
+  // Counts for status tabs computed from deduplicated actions
+  const pendingCount = dedupedActions.filter((a) => a.status === "pending").length;
+  const approvedCount = dedupedActions.filter((a) => a.status === "approved").length;
+  const editedCount = dedupedActions.filter((a) => a.status === "edited").length;
+  const rejectedCount = dedupedActions.filter((a) => a.status === "rejected").length;
+  const allCount = dedupedActions.length;
 
   return (
     <div className="space-y-6">

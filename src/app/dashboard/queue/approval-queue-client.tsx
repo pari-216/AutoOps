@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/client";
+import { formatDateTime } from "@/lib/format-date";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,12 +56,14 @@ export interface AgentActionWithEvent {
         sender_email: string | null;
         sender_name: string | null;
         subject: string | null;
+        body_text?: string | null;
         received_at: string | null;
       }
     | {
         sender_email: string | null;
         sender_name: string | null;
         subject: string | null;
+        body_text?: string | null;
         received_at: string | null;
       }[]
     | null;
@@ -288,12 +291,7 @@ function ActionCard({
             </Badge>
             <span className="text-[10px] text-slate-400 flex items-center gap-1">
               <Calendar className="size-3" />
-              {new Date(timestamp).toLocaleString(undefined, {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              {formatDateTime(timestamp)}
             </span>
           </div>
         </div>
@@ -664,11 +662,17 @@ export function ApprovalQueueClient({
         showNotification(data.error || "Failed to approve action.", "error");
       } else {
         showNotification("Action approved successfully.", "success");
-        // Optimistic state update
+        // Update local state with API response
         setActions((prev) =>
           prev.map((a) =>
             a.id === actionId
-              ? { ...a, status: "approved", processed_at: new Date().toISOString() }
+              ? {
+                  ...a,
+                  ...(data.action || {}),
+                  status: data.action?.status || "approved",
+                  execution_status: data.action?.execution_status || a.execution_status,
+                  processed_at: data.action?.processed_at || new Date().toISOString(),
+                }
               : a
           )
         );
@@ -702,16 +706,18 @@ export function ApprovalQueueClient({
         showNotification(data.error || "Failed to edit & approve action.", "error");
       } else {
         showNotification("Reply edited and approved.", "success");
-        // Optimistic update
+        // Update local state with API response
         setActions((prev) =>
           prev.map((a) =>
             a.id === actionId
               ? {
                   ...a,
-                  status: "edited",
+                  ...(data.action || {}),
+                  status: data.action?.status || "edited",
+                  execution_status: data.action?.execution_status || a.execution_status,
                   original_drafted_reply: a.original_drafted_reply || a.drafted_reply,
                   drafted_reply: newReply,
-                  processed_at: new Date().toISOString(),
+                  processed_at: data.action?.processed_at || new Date().toISOString(),
                 }
               : a
           )
@@ -743,11 +749,16 @@ export function ApprovalQueueClient({
         showNotification(data.error || "Failed to reject action.", "error");
       } else {
         showNotification("Action rejected.", "success");
-        // Optimistic update
+        // Update local state with API response
         setActions((prev) =>
           prev.map((a) =>
             a.id === actionId
-              ? { ...a, status: "rejected", processed_at: new Date().toISOString() }
+              ? {
+                  ...a,
+                  ...(data.action || {}),
+                  status: data.action?.status || "rejected",
+                  processed_at: data.action?.processed_at || new Date().toISOString(),
+                }
               : a
           )
         );

@@ -37,7 +37,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .update({
         status: "rejected",
         updated_at: now,
-        processed_at: now,
       })
       .eq("id", actionId.trim())
       .eq("user_id", user.id)
@@ -46,6 +45,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .single();
 
     if (updateError || !updatedAction) {
+      if (updateError) {
+        console.error("[AutoOps reject] Update failed:", updateError);
+      }
       // Check if action exists for user to give clear error message
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: existing } = await (supabase
@@ -61,8 +63,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
 
+      if (existing.status !== "pending") {
+        return NextResponse.json(
+          { error: `Action cannot be rejected because current status is '${existing.status}'.` },
+          { status: 409 }
+        );
+      }
+
+      if (updateError) {
+        return NextResponse.json(
+          { error: updateError.message || "Failed to reject action." },
+          { status: 500 }
+        );
+      }
+
       return NextResponse.json(
-        { error: `Action cannot be rejected because current status is '${existing.status}'.` },
+        { error: "Action could not be rejected due to a concurrent update." },
         { status: 409 }
       );
     }

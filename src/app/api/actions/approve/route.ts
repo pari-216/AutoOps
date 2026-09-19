@@ -38,7 +38,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .update({
         status: "approved",
         updated_at: now,
-        processed_at: now,
       })
       .eq("id", actionId.trim())
       .eq("user_id", user.id)
@@ -47,6 +46,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .single();
 
     if (updateError || !updatedAction) {
+      if (updateError) {
+        console.error("[AutoOps approve] Update failed:", updateError);
+      }
       // Check if action exists for user to give clear error code
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: existing } = await (supabase
@@ -62,8 +64,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
 
+      if (existing.status !== "pending") {
+        return NextResponse.json(
+          { error: `Action cannot be approved because current status is '${existing.status}'.` },
+          { status: 409 }
+        );
+      }
+
+      if (updateError) {
+        return NextResponse.json(
+          { error: updateError.message || "Failed to update action." },
+          { status: 500 }
+        );
+      }
+
       return NextResponse.json(
-        { error: `Action cannot be approved because current status is '${existing.status}'.` },
+        { error: "Action could not be approved due to a concurrent update." },
         { status: 409 }
       );
     }
@@ -97,9 +113,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       };
     }
 
+    if (!executionResult.success) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: executionResult.error || "Execution failed.",
+          action: updatedAction,
+          execution: executionResult,
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       ok: true,
-      action: updatedAction,
+      action: {
+        ...updatedAction,
+        execution_status: executionResult.executionStatus,
+        external_action_id: executionResult.externalActionId ?? null,
+      },
       execution: executionResult,
     });
   } catch (err) {

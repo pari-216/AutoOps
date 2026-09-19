@@ -10,6 +10,12 @@ import { getValidGoogleAccessToken } from "./tokens";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processInboundEvent } from "@/lib/ai/process-event";
 
+/** Small delay helper to respect Groq TPM rate limits (8k tokens/min free tier). */
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Milliseconds to wait between sequential AI processing calls (avoids Groq TPM 429s). */
+const AI_CALL_DELAY_MS = 2000;
+
 export interface IngestResult {
   found: number;
   inserted: number;
@@ -185,6 +191,8 @@ export async function ingestGmailForUser(userId: string): Promise<IngestResult> 
   }
 
   // 4. Fetch details and ingest each message
+  const newEventIds: string[] = [];
+
   for (const item of messages) {
     try {
       const detailUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${item.id}?format=full`;
@@ -239,7 +247,21 @@ export async function ingestGmailForUser(userId: string): Promise<IngestResult> 
         },
       };
 
-      // 5. Insert into inbound_events (with dedup ON CONFLICT DO NOTHING)
+      // 5. Deduplication pre-check + insert into inbound_events
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: existingEvent } = await (supabase
+        .from("inbound_events") as any)
+        .select("id")
+        .eq("user_id", userId)
+        .eq("external_event_id", item.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingEvent) {
+        result.skipped++;
+        continue;
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: insertedEvent, error: insertError } = await (supabase
         .from("inbound_events") as any)
@@ -275,10 +297,8 @@ export async function ingestGmailForUser(userId: string): Promise<IngestResult> 
           },
         });
 
-        // Trigger Phase 4 AI Agent (fire-and-forget)
-        processInboundEvent(eventId, userId).catch((err) => {
-          console.error(`[Gmail Ingest] AI Agent processing failed for event ${eventId}:`, err);
-        });
+        // Collect for sequential AI processing
+        newEventIds.push(eventId);
       }
     } catch (err) {
       console.error(`[Gmail Ingest] Error ingesting message ${item.id}:`, err);
@@ -292,9 +312,23 @@ export async function ingestGmailForUser(userId: string): Promise<IngestResult> 
     .update({ last_synced_at: new Date().toISOString() })
     .eq("id", account.id);
 
-  // 7. Safe retry for existing unprocessed inbound events (batch limit of 15)
+  // 7. Process newly inserted events sequentially with delay to respect Groq TPM limits
+  for (let i = 0; i < newEventIds.length; i++) {
+    const eventId = newEventIds[i];
+    try {
+      await processInboundEvent(eventId, userId);
+    } catch (err) {
+      console.error(`[Gmail Ingest] AI Agent processing failed for event ${eventId}:`, err);
+    }
+    // Wait between calls (skip delay after the last one)
+    if (i < newEventIds.length - 1) {
+      await sleep(AI_CALL_DELAY_MS);
+    }
+  }
+
+  // 8. Safe retry for existing unprocessed inbound events (batch limit of 5 to avoid TPM burst)
   try {
-    const retried = await processUnprocessedEventsForUser(userId, 15);
+    const retried = await processUnprocessedEventsForUser(userId, 5);
     result.retriedProcessed = retried;
   } catch (retryErr) {
     console.error(`[Gmail Ingest] Retry unprocessed events error for user ${userId}:`, retryErr);
@@ -329,11 +363,29 @@ export async function processUnprocessedEventsForUser(
     (actions || []).map((a: { event_id: string }) => a.event_id).filter(Boolean)
   );
 
+  // Also track external_event_ids and gmail_message_ids already covered by existing actions
+  const processedExtIds = new Set<string>();
+  const processedMsgIds = new Set<string>();
+
+  if (processedEventIds.size > 0) {
+    const eventIdArr = Array.from(processedEventIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: linkedEvents } = await (supabase
+      .from("inbound_events") as any)
+      .select("id, external_event_id, gmail_message_id")
+      .in("id", eventIdArr.slice(0, 500));
+
+    for (const le of (linkedEvents || [])) {
+      if (le.external_event_id) processedExtIds.add(le.external_event_id);
+      if (le.gmail_message_id) processedMsgIds.add(le.gmail_message_id);
+    }
+  }
+
   // 2. Fetch recent inbound_events for this user
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: events, error: eventsError } = await (supabase
     .from("inbound_events") as any)
-    .select("id")
+    .select("id, external_event_id, gmail_message_id")
     .eq("user_id", userId)
     .order("created_at", { ascending: true })
     .limit(100);
@@ -343,17 +395,33 @@ export async function processUnprocessedEventsForUser(
     return 0;
   }
 
-  const unprocessed = (events as { id: string }[])
-    .filter((e) => !processedEventIds.has(e.id))
-    .slice(0, limit);
+  const unprocessed: { id: string }[] = [];
+  for (const e of (events as { id: string; external_event_id?: string; gmail_message_id?: string }[])) {
+    if (processedEventIds.has(e.id)) continue;
+    if (e.external_event_id && processedExtIds.has(e.external_event_id)) continue;
+    if (e.gmail_message_id && processedMsgIds.has(e.gmail_message_id)) continue;
+
+    // Mark as seen so duplicates within this batch are also skipped
+    processedEventIds.add(e.id);
+    if (e.external_event_id) processedExtIds.add(e.external_event_id);
+    if (e.gmail_message_id) processedMsgIds.add(e.gmail_message_id);
+
+    unprocessed.push({ id: e.id });
+    if (unprocessed.length >= limit) break;
+  }
 
   let processedCount = 0;
-  for (const event of unprocessed) {
+  for (let i = 0; i < unprocessed.length; i++) {
+    const event = unprocessed[i];
     try {
       await processInboundEvent(event.id, userId);
       processedCount++;
     } catch (err) {
       console.error(`[AI Ingest Retry] Failed to process event ${event.id}:`, err);
+    }
+    // Delay between calls to respect Groq TPM limits
+    if (i < unprocessed.length - 1) {
+      await sleep(AI_CALL_DELAY_MS);
     }
   }
 

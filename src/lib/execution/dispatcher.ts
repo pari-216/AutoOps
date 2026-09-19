@@ -34,7 +34,7 @@ export async function executeApprovedAction(
     .from("agent_actions") as any)
     .select(`
       id, user_id, event_id, classification, suggested_action, drafted_reply,
-      original_drafted_reply, status, execution_status,
+      status, execution_status,
       inbound_events (
         id, sender_email, sender_name, subject, body_text
       )
@@ -238,7 +238,13 @@ export async function executeApprovedAction(
   }
 
   // 5. Update final agent_actions execution state
-  const finalStatus = executionSuccess ? "executed" : "approved"; // Keep status approved/edited while setting execution_status
+  //
+  // IMPORTANT: `status` tracks the HUMAN DECISION (approved / edited / rejected).
+  // Do NOT overwrite it with an execution-lifecycle value.
+  // `execution_status` tracks the execution pipeline outcome (executing → executed / failed).
+  // Keeping them separate means an approved action stays in the "Approved" tab regardless
+  // of whether execution succeeded or failed.
+  const finalStatus = action.status; // preserve 'approved' or 'edited' — human decision unchanged
   const finalExecutionStatus = executionSuccess ? "executed" : "failed";
 
   await (supabase.from("agent_actions") as any)

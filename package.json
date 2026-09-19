@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:cron": "node scripts/dev-cron.mjs",
+    "dev:cron:once": "node scripts/dev-cron.mjs --once",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

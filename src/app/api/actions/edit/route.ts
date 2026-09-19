@@ -55,11 +55,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Fetch existing action to verify ownership & status and capture original draft
+    // Fetch existing action to verify ownership & status
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: existing, error: fetchError } = await (supabase
       .from("agent_actions") as any)
-      .select("id, user_id, status, event_id, drafted_reply, original_drafted_reply")
+      .select("id, user_id, status, event_id, drafted_reply")
       .eq("id", actionId.trim())
       .single();
 
@@ -77,7 +77,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const originalDraft = existing.original_drafted_reply || existing.drafted_reply;
     const now = new Date().toISOString();
 
     // Atomic update: pending -> edited
@@ -87,17 +86,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .update({
         status: "edited",
         drafted_reply: cleanReply,
-        original_drafted_reply: originalDraft,
         updated_at: now,
-        processed_at: now,
       })
       .eq("id", actionId.trim())
       .eq("user_id", user.id)
       .eq("status", "pending")
-      .select("id, event_id, status, drafted_reply, original_drafted_reply")
+      .select("id, event_id, status, drafted_reply")
       .single();
 
     if (updateError || !updatedAction) {
+      if (updateError) {
+        console.error("[AutoOps edit] Update failed:", updateError);
+        return NextResponse.json(
+          { error: updateError.message || "Failed to update action." },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
         { error: "Failed to update action. It may have been processed concurrently." },
         { status: 409 }
@@ -139,9 +143,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       };
     }
 
+    if (!executionResult.success) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: executionResult.error || "Execution failed.",
+          action: updatedAction,
+          execution: executionResult,
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       ok: true,
-      action: updatedAction,
+      action: {
+        ...updatedAction,
+        execution_status: executionResult.executionStatus,
+        external_action_id: executionResult.externalActionId ?? null,
+      },
       execution: executionResult,
     });
   } catch (err) {

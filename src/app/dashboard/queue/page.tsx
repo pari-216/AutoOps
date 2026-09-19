@@ -2,6 +2,8 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 import { ApprovalQueueClient, AgentActionWithEvent } from "./approval-queue-client";
 
+export const dynamic = "force-dynamic";
+
 export default async function ApprovalQueuePage() {
   let actions: AgentActionWithEvent[] = [];
   let userId = "";
@@ -16,19 +18,20 @@ export default async function ApprovalQueuePage() {
       if (user) {
         userId = user.id;
 
-        const select =
-          "id, user_id, event_id, classification, suggested_action, drafted_reply, original_drafted_reply, confidence, reason, status, execution_status, executed_at, execution_error, external_action_id, created_at, processed_at, inbound_events(sender_email, sender_name, subject, received_at)";
-
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("agent_actions")
-          .select(select)
+          .select("*, inbound_events(sender_email, sender_name, subject, body_text, received_at)")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false });
 
-        actions = (data as unknown as AgentActionWithEvent[]) || [];
+        if (error) {
+          console.error("[ApprovalQueuePage] Supabase query error:", error);
+        } else if (data) {
+          actions = data as unknown as AgentActionWithEvent[];
+        }
       }
-    } catch {
-      // Gracefully handle unconfigured / connection errors
+    } catch (err) {
+      console.error("[ApprovalQueuePage] Unexpected error loading queue:", err);
     }
   }
 

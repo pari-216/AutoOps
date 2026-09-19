@@ -16,6 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { formatDateTime } from "@/lib/format-date";
+
+export const dynamic = "force-dynamic";
 
 interface InboundEventRecord {
   id: string;
@@ -34,6 +37,7 @@ export default async function DashboardPage() {
   let approvedToday = 0;
   let approvalRate = "0%";
   let dbConnected = false;
+  let dbError: string | null = null;
   let recentEmails: InboundEventRecord[] = [];
 
   if (isSupabaseConfigured()) {
@@ -48,61 +52,71 @@ export default async function DashboardPage() {
         dbConnected = true;
 
         // 1. Emails Ingested (count of inbound_events for current user)
-        const { count: eventsCount } = await supabase
+        const { count: eventsCount, error: e1 } = await supabase
           .from("inbound_events")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id);
 
+        if (e1) console.error("[AutoOps Dashboard] emailsIngested query failed:", e1);
         emailsIngested = eventsCount || 0;
 
         // 2. Pending Approval (count of agent_actions where status = 'pending')
-        const { count: pendingCount } = await supabase
+        const { count: pendingCount, error: e2 } = await supabase
           .from("agent_actions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id)
           .eq("status", "pending");
 
+        if (e2) console.error("[AutoOps Dashboard] pendingApproval query failed:", e2);
         pendingApproval = pendingCount || 0;
 
-        // 3. Approved Today (status IN ('approved', 'edited') updated today)
+        // 3. Approved Today (status IN ('approved', 'edited') updated today — UTC boundary)
         const todayStr = new Date().toISOString().split("T")[0];
-        const { count: approvedCount } = await supabase
+        const { count: approvedCount, error: e3 } = await supabase
           .from("agent_actions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id)
           .in("status", ["approved", "edited"])
           .gte("updated_at", `${todayStr}T00:00:00.000Z`);
 
+        if (e3) console.error("[AutoOps Dashboard] approvedToday query failed:", e3);
         approvedToday = approvedCount || 0;
 
         // 4. Approval Rate (approved + edited / total actions * 100)
-        const { count: totalActions } = await supabase
+        const { count: totalActions, error: e4 } = await supabase
           .from("agent_actions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id);
 
-        const { count: processedTotal } = await supabase
+        const { count: processedTotal, error: e5 } = await supabase
           .from("agent_actions")
           .select("*", { count: "exact", head: true })
           .eq("user_id", user.id)
           .in("status", ["approved", "edited"]);
+
+        if (e4) console.error("[AutoOps Dashboard] totalActions query failed:", e4);
+        if (e5) console.error("[AutoOps Dashboard] processedTotal query failed:", e5);
 
         const total = totalActions || 0;
         const processed = processedTotal || 0;
         approvalRate = total > 0 ? `${Math.round((processed / total) * 100)}%` : "0%";
 
         // 5. Recent inbound emails
-        const { data: recentData } = await supabase
+        const { data: recentData, error: e6 } = await supabase
           .from("inbound_events")
           .select("id, sender_email, sender_name, subject, received_at, created_at, source")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false })
           .limit(5);
 
+        if (e6) console.error("[AutoOps Dashboard] recentEmails query failed:", e6);
         recentEmails = (recentData as InboundEventRecord[]) || [];
       }
-    } catch {
-      // Gracefully handle unconfigured or network errors
+    } catch (err) {
+      // Log unexpected errors (misconfigured env, network failure, etc.)
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[AutoOps Dashboard] Unexpected error loading metrics:", message);
+      dbError = message;
     }
   }
 
@@ -123,19 +137,27 @@ export default async function DashboardPage() {
           <Badge
             variant="outline"
             className={`px-3 py-1 text-xs font-semibold transition-colors ${
-              dbConnected
+              dbError
+                ? "border-rose-200 bg-rose-50 text-rose-700"
+                : dbConnected
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : "border-violet-200 bg-violet-50 text-violet-700"
             }`}
           >
             <span
               className={`mr-1.5 size-2 rounded-full ${
-                dbConnected
+                dbError
+                  ? "bg-rose-500"
+                  : dbConnected
                   ? "bg-emerald-500 animate-pulse"
                   : "bg-violet-500 animate-pulse-soft"
               }`}
             />
-            {dbConnected ? "Supabase PostgreSQL RLS Active" : "Phase 2 Preview"}
+            {dbError
+              ? "Metrics load error — check server logs"
+              : dbConnected
+              ? "Supabase PostgreSQL RLS Active"
+              : "Phase 2 Preview"}
           </Badge>
         </div>
       </PageHeader>
@@ -294,12 +316,7 @@ export default async function DashboardPage() {
                     </Badge>
                     <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                       <Calendar className="size-3" />
-                      {new Date(email.received_at ?? email.created_at).toLocaleString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatDateTime(email.received_at ?? email.created_at)}
                     </span>
                   </div>
                 </div>

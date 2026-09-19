@@ -52,9 +52,10 @@ interface AutoOpsContextType {
   connectGmail: () => void;
   updateSetting: (key: string, value: boolean) => void;
   removeToast: (id: string) => void;
+  refreshPendingCount: () => Promise<void>;
 }
 
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 const initialPending: ApprovalItem[] = [];
@@ -75,41 +76,71 @@ export function AutoOpsProvider({ children }: { children: React.ReactNode }) {
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastState[]>([]);
 
-  // Sync real pending items count from Supabase on mount
-  useEffect(() => {
+  const refreshPendingCount = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
     try {
       const supabase = createClient();
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        if (!user) return;
-        supabase
-          .from("agent_actions")
-          .select("id, status")
-          .eq("user_id", user.id)
-          .eq("status", "pending")
-          .then(({ data }) => {
-            if (data && Array.isArray(data)) {
-              setPendingItems(
-                data.map((item: { id: string }) => ({
-                  id: item.id,
-                  subject: "",
-                  from: "",
-                  senderName: "",
-                  time: "",
-                  intent: "",
-                  confidence: 0,
-                  suggestion: "",
-                  details: "",
-                  draftText: "",
-                }))
-              );
-            }
-          });
-      });
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from("agent_actions")
+        .select("id, status")
+        .eq("user_id", user.id)
+        .eq("status", "pending");
+
+      if (data && Array.isArray(data)) {
+        setPendingItems(
+          data.map((item: { id: string }) => ({
+            id: item.id,
+            subject: "",
+            from: "",
+            senderName: "",
+            time: "",
+            intent: "",
+            confidence: 0,
+            suggestion: "",
+            details: "",
+            draftText: "",
+          }))
+        );
+      }
     } catch {
       // Non-blocking
     }
   }, []);
+
+  // Sync real pending items count from Supabase on mount & subscribe to realtime changes
+  useEffect(() => {
+    refreshPendingCount();
+
+    if (!isSupabaseConfigured()) return;
+    try {
+      const supabase = createClient();
+      const channel = supabase
+        .channel("realtime_agent_actions_context")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "agent_actions",
+          },
+          () => {
+            refreshPendingCount();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } catch {
+      // Non-blocking
+    }
+  }, [refreshPendingCount]);
   const [settings, setSettings] = useState({
     responseTone: true,
     suggestBeforeSending: true,
@@ -285,6 +316,7 @@ export function AutoOpsProvider({ children }: { children: React.ReactNode }) {
         connectGmail,
         updateSetting,
         removeToast,
+        refreshPendingCount,
       }}
     >
       {children}

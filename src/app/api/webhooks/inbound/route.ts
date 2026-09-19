@@ -153,6 +153,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     raw_payload: normalized.raw_payload,
   };
 
+  // ── 6. Deduplication pre-check + insert into inbound_events ─────────────
+  if (normalized.external_event_id) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: existing } = await (supabase
+      .from("inbound_events") as any)
+      .select("id")
+      .eq("user_id", userId)
+      .eq("source", source)
+      .eq("external_event_id", normalized.external_event_id)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      console.info(
+        `[AutoOps webhook] Duplicate event ignored (pre-check): external_event_id=${normalized.external_event_id}`
+      );
+      return NextResponse.json(
+        { ok: true, duplicate: true },
+        { status: 200 }
+      );
+    }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: insertedEvent, error: eventError } = await (supabase
     .from("inbound_events") as any)

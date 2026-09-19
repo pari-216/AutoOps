@@ -178,10 +178,10 @@ export default function LandingPage() {
       <section className="relative w-full overflow-hidden">
         {/* Full-width 2D Interactive Ripple Grid Background spanning edge-to-edge */}
         <HeroInteractiveBackground
-          gridSize={52}
+          gridSize={46}
           movement={0.75}
-          force={160}
-          strokeColor="rgba(139, 92, 246, 0.13)"
+          force={180}
+          strokeColor="rgba(139, 92, 246, 0.16)"
         />
 
         <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pt-10 pb-20 sm:px-6 sm:pt-16 sm:pb-28">
